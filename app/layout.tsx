@@ -6,7 +6,7 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "AI Voice Complaint Agent",
+  title: "AURA - AI Voice Assistant",
   description: "AI-powered voice agent for handling service complaints",
     generator: 'v0.dev'
 }
