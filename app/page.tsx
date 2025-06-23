@@ -545,7 +545,7 @@ export default function VoiceComplaintAgent() {
               <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 mb-3">
                 <div className="flex justify-between items-center mb-2">
                   <p className="text-xs text-gray-600">Conversation Progress</p>
-                  <p className="text-xs text-gray-500">{conversationStep}/5}</p>
+                  <p className="text-xs text-gray-500">{`${conversationStep}/5`}</p>
                 </div>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((step) => (
