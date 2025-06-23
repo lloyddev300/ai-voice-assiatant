@@ -28,7 +28,8 @@ export default function VoiceComplaintAgent() {
     customerInfo: "",
     issueDetails: "",
   })
-  const [isPushToTalk, setIsPushToTalk] = useState(false)
+
+  const isPushToTalk = true // ← manual mode is always true now
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
@@ -126,7 +127,14 @@ export default function VoiceComplaintAgent() {
         }
 
         recognition.onerror = (event: any) => {
-          console.error("Speech recognition error:", event.error)
+          console.warn("Speech recognition error:", event.error)
+
+          // Ignore benign 'no-speech' events – they simply mean the mic was open
+          // but the user didn’t speak loudly enough (or fast enough).
+          if (event.error === "no-speech") {
+            return
+          }
+
           setIsListening(false)
           recognitionActiveRef.current = false
 
@@ -147,14 +155,9 @@ export default function VoiceComplaintAgent() {
           recognitionActiveRef.current = false
           setInterimTranscript("")
 
-          // Immediate restart if conversation is active
-          if (isConversationActive && !isSpeaking) {
-            setTimeout(() => {
-              if (isConversationActive && !isSpeaking && !recognitionActiveRef.current) {
-                console.log("Auto-restarting listening...")
-                startListening()
-              }
-            }, 100) // Very fast restart
+          // Only auto-restart when NOT in push-to-talk
+          if (isConversationActive && !isSpeaking && !isPushToTalk) {
+            startListening()
           }
         }
 
@@ -618,18 +621,15 @@ export default function VoiceComplaintAgent() {
               {/* Manual Speak Button */}
               {isConversationActive && (
                 <Button
-                  onClick={handleManualSpeak}
-                  onMouseDown={handleManualSpeak}
-                  onMouseUp={() => {
-                    if (isListening) {
-                      setTimeout(() => stopListening(), 100)
-                    }
-                  }}
                   size="lg"
                   className={`w-20 h-20 rounded-full shadow-2xl transition-all duration-300 ${
-                    isListening ? "bg-red-500 hover:bg-red-600 scale-110" : "bg-blue-500 hover:bg-blue-600"
+                    isListening ? "bg-red-500 scale-110" : "bg-blue-500"
                   }`}
                   disabled={isSpeaking}
+                  onMouseDown={() => startListening()}
+                  onMouseUp={() => stopListening()}
+                  onTouchStart={() => startListening()}
+                  onTouchEnd={() => stopListening()}
                 >
                   {isListening ? (
                     <div className="text-white text-2xl">🎤</div>
