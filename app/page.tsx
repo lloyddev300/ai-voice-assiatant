@@ -27,9 +27,10 @@ export default function VoiceComplaintAgent() {
     complaint: "",
     customerInfo: "",
     issueDetails: "",
+    conversationHistory: [] as string[],
   })
 
-  const isPushToTalk = true // ← manual mode is always true now
+  const isPushToTalk = true
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
@@ -48,10 +49,18 @@ export default function VoiceComplaintAgent() {
       },
     ],
     onFinish: (message) => {
+      console.log("AI response received:", message.content)
+
       // Check if AI is asking for email
       if (message.content.toLowerCase().includes("email") && message.content.toLowerCase().includes("submit")) {
         setShowEmailPopup(true)
       }
+
+      // Store AI response in complaint data
+      setComplaintData((prev) => ({
+        ...prev,
+        conversationHistory: [...prev.conversationHistory, `AURA: ${message.content}`],
+      }))
 
       // Automatically speak the AI response
       speakText(message.content)
@@ -63,7 +72,7 @@ export default function VoiceComplaintAgent() {
     const requestMicrophonePermission = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        stream.getTracks().forEach((track) => track.stop()) // Stop the stream, we just needed permission
+        stream.getTracks().forEach((track) => track.stop())
         console.log("Microphone permission granted")
       } catch (error) {
         console.error("Microphone permission denied:", error)
@@ -80,7 +89,6 @@ export default function VoiceComplaintAgent() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
         const recognition = new SpeechRecognition()
 
-        // More aggressive settings
         recognition.continuous = true
         recognition.interimResults = true
         recognition.lang = "en-US"
@@ -110,43 +118,33 @@ export default function VoiceComplaintAgent() {
             }
           }
 
-          // Update live transcription
           setInterimTranscript(interimText)
-          if (finalTranscript) {
-            setCurrentTranscript((prev) => prev + finalTranscript)
 
-            // Process final transcript immediately
+          if (finalTranscript.trim()) {
             const fullMessage = (currentTranscript + finalTranscript).trim()
-            if (fullMessage) {
-              console.log("Processing final message:", fullMessage)
-              setLastUserMessage(fullMessage)
-              updateComplaintData(fullMessage)
-              handleVoiceInput(fullMessage)
-            }
+            console.log("Processing final message:", fullMessage)
+
+            setCurrentTranscript(fullMessage)
+            setLastUserMessage(fullMessage)
+
+            // Store user message in complaint data
+            updateComplaintData(fullMessage)
+
+            // Send to AI
+            handleVoiceInput(fullMessage)
           }
         }
 
         recognition.onerror = (event: any) => {
           console.warn("Speech recognition error:", event.error)
 
-          // Ignore benign 'no-speech' events – they simply mean the mic was open
-          // but the user didn’t speak loudly enough (or fast enough).
           if (event.error === "no-speech") {
+            console.log("No speech detected, ignoring error")
             return
           }
 
           setIsListening(false)
           recognitionActiveRef.current = false
-
-          // Auto-restart on most errors
-          if (isConversationActive && !isSpeaking) {
-            setTimeout(() => {
-              if (isConversationActive && !isSpeaking && !recognitionActiveRef.current) {
-                console.log("Restarting after error...")
-                startListening()
-              }
-            }, 1000)
-          }
         }
 
         recognition.onend = () => {
@@ -154,11 +152,6 @@ export default function VoiceComplaintAgent() {
           setIsListening(false)
           recognitionActiveRef.current = false
           setInterimTranscript("")
-
-          // Only auto-restart when NOT in push-to-talk
-          if (isConversationActive && !isSpeaking && !isPushToTalk) {
-            startListening()
-          }
         }
 
         recognitionRef.current = recognition
@@ -171,28 +164,21 @@ export default function VoiceComplaintAgent() {
 
     initializeSpeechRecognition()
 
-    // Initialize speech synthesis with better voice loading
+    // Initialize speech synthesis
     if (typeof window !== "undefined") {
       synthRef.current = window.speechSynthesis
 
       const loadVoices = () => {
         const voices = window.speechSynthesis.getVoices()
-        console.log(
-          "Available voices:",
-          voices.map((v) => `${v.name} (${v.lang})`),
-        )
+        console.log("Available voices:", voices.length)
         setVoicesReady(true)
       }
 
-      // Load voices immediately if available
       if (window.speechSynthesis.getVoices().length) {
         loadVoices()
       }
 
-      // Also listen for the event
       window.speechSynthesis.addEventListener("voiceschanged", loadVoices)
-
-      // Force load voices after a delay
       setTimeout(loadVoices, 1000)
     }
 
@@ -207,22 +193,35 @@ export default function VoiceComplaintAgent() {
         clearTimeout(restartListeningTimerRef.current)
       }
     }
-  }, [isConversationActive, isSpeaking])
+  }, [])
 
   const updateComplaintData = (userMessage: string) => {
-    // Simple logic to categorize user input
-    const messageCount = messages.filter((m) => m.role === "user").length
+    console.log("Updating complaint data with:", userMessage)
 
-    if (messageCount === 0) {
-      // First user message is likely the main complaint
-      setComplaintData((prev) => ({ ...prev, complaint: userMessage }))
-    } else if (messageCount === 1) {
-      // Second message might contain additional details
-      setComplaintData((prev) => ({ ...prev, issueDetails: userMessage }))
-    } else {
-      // Additional customer information
-      setComplaintData((prev) => ({ ...prev, customerInfo: prev.customerInfo + " " + userMessage }))
-    }
+    setComplaintData((prev) => {
+      const userMessageCount = messages.filter((m) => m.role === "user").length
+      const newData = { ...prev }
+
+      // Add to conversation history
+      newData.conversationHistory = [...prev.conversationHistory, `User: ${userMessage}`]
+
+      // Categorize the message
+      if (userMessageCount === 0) {
+        // First user message is the main complaint
+        newData.complaint = userMessage
+        console.log("Stored as main complaint:", userMessage)
+      } else if (userMessageCount === 1) {
+        // Second message contains additional details
+        newData.issueDetails = userMessage
+        console.log("Stored as issue details:", userMessage)
+      } else {
+        // Additional customer information
+        newData.customerInfo = prev.customerInfo ? `${prev.customerInfo} ${userMessage}` : userMessage
+        console.log("Stored as customer info:", userMessage)
+      }
+
+      return newData
+    })
   }
 
   const startConversation = () => {
@@ -231,21 +230,22 @@ export default function VoiceComplaintAgent() {
     setLastUserMessage("")
     setCurrentTranscript("")
     setInterimTranscript("")
-    setComplaintData({ complaint: "", customerInfo: "", issueDetails: "" })
+    setComplaintData({
+      complaint: "",
+      customerInfo: "",
+      issueDetails: "",
+      conversationHistory: [],
+    })
 
     // Speak the initial greeting
     const initialMessage = messages[0]?.content
     if (initialMessage) {
       speakText(initialMessage)
-    } else {
-      // If no initial message, start listening immediately
-      setTimeout(() => {
-        startListening()
-      }, 1000)
     }
   }
 
   const endConversation = () => {
+    console.log("Ending conversation...")
     setIsConversationActive(false)
     stopListening()
     stopSpeaking()
@@ -254,8 +254,8 @@ export default function VoiceComplaintAgent() {
     setLastUserMessage("")
     setShowEmailPopup(false)
 
-    // Send final complaint data
-    if (messages.length > 2) {
+    // Send complaint data if we have any conversation
+    if (messages.length > 1) {
       sendComplaintData()
     }
   }
@@ -276,28 +276,25 @@ export default function VoiceComplaintAgent() {
       return
     }
 
-    console.log("Attempting to start speech recognition...")
+    console.log("Starting speech recognition...")
 
     try {
       recognitionRef.current.start()
-      console.log("Speech recognition start() called successfully")
     } catch (err: any) {
       console.error("Error starting recognition:", err)
 
-      // Try to recover from common errors
       if (err.name === "InvalidStateError") {
-        // Recognition might be in a bad state, try to reset
         setTimeout(() => {
-          if (recognitionRef.current && isConversationActive && !isSpeaking) {
+          if (recognitionRef.current && !recognitionActiveRef.current) {
             try {
               recognitionRef.current.stop()
               setTimeout(() => {
-                if (isConversationActive && !isSpeaking) {
+                if (!recognitionActiveRef.current) {
                   recognitionRef.current?.start()
                 }
               }, 500)
             } catch (e) {
-              console.error("Failed to recover from InvalidStateError:", e)
+              console.error("Failed to recover:", e)
             }
           }
         }, 100)
@@ -306,88 +303,60 @@ export default function VoiceComplaintAgent() {
   }
 
   const stopListening = () => {
+    console.log("Stopping speech recognition...")
     if (recognitionRef.current && recognitionActiveRef.current) {
       recognitionRef.current.stop()
-      recognitionActiveRef.current = false
     }
-    if (restartListeningTimerRef.current) {
-      clearTimeout(restartListeningTimerRef.current)
-    }
+    setIsListening(false)
+    recognitionActiveRef.current = false
   }
 
   const speakText = (text: string) => {
     if (!synthRef.current || !voicesReady || !text) {
-      console.log("Cannot speak:", { synthRef: !!synthRef.current, voicesReady, hasText: !!text })
+      console.log("Cannot speak - missing requirements")
       return
     }
 
-    console.log("Speaking text:", text)
+    console.log("Speaking:", text)
 
-    // Cancel any ongoing speech
     if (synthRef.current.speaking) {
       synthRef.current.cancel()
     }
 
     setTimeout(() => {
       const utterance = new SpeechSynthesisUtterance(text)
-
-      // Voice settings for American accent
       utterance.rate = 0.9
       utterance.pitch = 1.0
       utterance.volume = 1.0
       utterance.lang = "en-US"
 
-      // Find the best American voice
       const voices = synthRef.current!.getVoices()
-      console.log("Looking for American voice among:", voices.length, "voices")
-
       const americanVoice =
         voices.find((v) => v.lang === "en-US" && v.name.toLowerCase().includes("google")) ??
         voices.find((v) => v.lang === "en-US" && v.name.toLowerCase().includes("microsoft")) ??
-        voices.find((v) => v.lang === "en-US" && v.name.toLowerCase().includes("samantha")) ??
-        voices.find((v) => v.lang === "en-US" && v.name.toLowerCase().includes("alex")) ??
         voices.find((v) => v.lang === "en-US") ??
         voices.find((v) => v.lang.startsWith("en")) ??
         voices[0]
 
       if (americanVoice) {
         utterance.voice = americanVoice
-        console.log("Using voice:", americanVoice.name, americanVoice.lang)
+        console.log("Using voice:", americanVoice.name)
       }
 
       utterance.onstart = () => {
-        console.log("Speech synthesis started")
+        console.log("Speech started")
         setIsSpeaking(true)
         stopListening()
       }
 
       utterance.onend = () => {
-        console.log("Speech synthesis ended")
+        console.log("Speech ended")
         setIsSpeaking(false)
-
-        // Start listening after AI finishes speaking
-        if (isConversationActive) {
-          setTimeout(() => {
-            if (isConversationActive && !recognitionActiveRef.current) {
-              console.log("Starting to listen after AI speech...")
-              startListening()
-            }
-          }, 500)
-        }
       }
 
       utterance.onerror = (event) => {
-        console.error("Speech synthesis error:", event)
+        console.error("Speech error:", event)
         setIsSpeaking(false)
-
-        // Still try to start listening even if speech failed
-        if (isConversationActive) {
-          setTimeout(() => {
-            if (isConversationActive && !recognitionActiveRef.current) {
-              startListening()
-            }
-          }, 500)
-        }
       }
 
       synthRef.current!.speak(utterance)
@@ -402,21 +371,33 @@ export default function VoiceComplaintAgent() {
   }
 
   const handleVoiceInput = (text: string) => {
-    // Send the voice input to the AI
+    console.log("Sending to AI:", text)
+
+    // Send to AI
     append({
       role: "user",
       content: text,
     })
 
-    // Clear transcripts after processing
-    setCurrentTranscript("")
-    setInterimTranscript("")
+    // Clear current transcript but keep the last message for display
+    setTimeout(() => {
+      setCurrentTranscript("")
+      setInterimTranscript("")
+    }, 100)
   }
 
   const handleEmailSubmit = () => {
     if (customerEmail.trim()) {
+      console.log("Email submitted:", customerEmail)
       setShowEmailPopup(false)
-      // Send complaint data with email
+
+      // Update complaint data with email
+      setComplaintData((prev) => ({
+        ...prev,
+        customerInfo: prev.customerInfo ? `${prev.customerInfo} Email: ${customerEmail}` : `Email: ${customerEmail}`,
+      }))
+
+      // Send complaint data
       sendComplaintData()
 
       // Continue conversation
@@ -428,47 +409,50 @@ export default function VoiceComplaintAgent() {
   }
 
   const sendComplaintData = async () => {
+    console.log("Sending complaint data...")
+
     try {
       const complaintPayload = {
+        timestamp: new Date().toISOString(),
         conversation: messages,
         complaintData: complaintData,
         customerEmail: customerEmail,
-        timestamp: new Date().toISOString(),
         conversationDuration: messages.length,
+        summary: {
+          mainComplaint: complaintData.complaint,
+          issueDetails: complaintData.issueDetails,
+          customerInfo: complaintData.customerInfo,
+          fullConversation: complaintData.conversationHistory,
+        },
       }
 
-      await fetch("/api/webhook", {
+      console.log("Complaint payload:", complaintPayload)
+
+      const response = await fetch("/api/webhook", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(complaintPayload),
       })
-      console.log("Complaint data sent successfully")
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log("Complaint data sent successfully:", result)
+      } else {
+        console.error("Failed to send complaint data:", response.status)
+      }
     } catch (error) {
       console.error("Error sending complaint:", error)
     }
   }
 
-  // Get current status for display
   const getConversationStatus = () => {
     if (!isConversationActive) return "Ready to start"
     if (isSpeaking) return "AURA speaking..."
     if (isListening) return "Listening..."
     if (isLoading) return "AURA thinking..."
-    return "Conversation active"
-  }
-
-  const handleManualSpeak = () => {
-    if (!isConversationActive) return
-
-    if (isListening) {
-      // Stop listening
-      stopListening()
-    } else if (!isSpeaking) {
-      // Start listening
-      startListening()
-    }
+    return "Ready to listen"
   }
 
   return (
@@ -577,6 +561,16 @@ export default function VoiceComplaintAgent() {
                   </div>
                 </div>
               )}
+
+              {/* Debug Info */}
+              {process.env.NODE_ENV === "development" && (
+                <div className="bg-gray-800/80 rounded-lg p-2 mb-3 text-xs text-white">
+                  <p>Messages: {messages.length}</p>
+                  <p>Complaint: {complaintData.complaint ? "✓" : "✗"}</p>
+                  <p>Details: {complaintData.issueDetails ? "✓" : "✗"}</p>
+                  <p>History: {complaintData.conversationHistory.length}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -670,8 +664,8 @@ export default function VoiceComplaintAgent() {
               </div>
             ) : (
               <div className="text-center text-white/60 text-sm px-4">
-                <p>Tap the blue button to speak</p>
-                <p className="mt-1">Hold or click to talk to AURA</p>
+                <p>Hold the blue button to speak</p>
+                <p className="mt-1">Release when you're done talking</p>
               </div>
             )}
           </div>
