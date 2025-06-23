@@ -28,6 +28,7 @@ export default function VoiceComplaintAgent() {
     customerInfo: "",
     issueDetails: "",
   })
+  const [isPushToTalk, setIsPushToTalk] = useState(false)
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
@@ -455,6 +456,18 @@ export default function VoiceComplaintAgent() {
     return "Conversation active"
   }
 
+  const handleManualSpeak = () => {
+    if (!isConversationActive) return
+
+    if (isListening) {
+      // Stop listening
+      stopListening()
+    } else if (!isSpeaking) {
+      // Start listening
+      startListening()
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-400 via-pink-400 to-blue-400 p-4 flex items-center justify-center">
       <SetupBanner />
@@ -587,20 +600,44 @@ export default function VoiceComplaintAgent() {
           {/* Controls */}
           <div className="space-y-8">
             {/* Main Conversation Control */}
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-4">
               <Button
                 onClick={isConversationActive ? endConversation : startConversation}
                 size="lg"
-                className={`w-24 h-24 rounded-full shadow-2xl transition-all duration-300 ${
-                  isConversationActive ? "bg-red-500 hover:bg-red-600 scale-110" : "bg-green-500 hover:bg-green-600"
+                className={`w-20 h-20 rounded-full shadow-2xl transition-all duration-300 ${
+                  isConversationActive ? "bg-red-500 hover:bg-red-600" : "bg-green-500 hover:bg-green-600"
                 }`}
               >
                 {isConversationActive ? (
-                  <PhoneOff className="h-10 w-10 text-white" />
+                  <PhoneOff className="h-8 w-8 text-white" />
                 ) : (
-                  <Phone className="h-10 w-10 text-white" />
+                  <Phone className="h-8 w-8 text-white" />
                 )}
               </Button>
+
+              {/* Manual Speak Button */}
+              {isConversationActive && (
+                <Button
+                  onClick={handleManualSpeak}
+                  onMouseDown={handleManualSpeak}
+                  onMouseUp={() => {
+                    if (isListening) {
+                      setTimeout(() => stopListening(), 100)
+                    }
+                  }}
+                  size="lg"
+                  className={`w-20 h-20 rounded-full shadow-2xl transition-all duration-300 ${
+                    isListening ? "bg-red-500 hover:bg-red-600 scale-110" : "bg-blue-500 hover:bg-blue-600"
+                  }`}
+                  disabled={isSpeaking}
+                >
+                  {isListening ? (
+                    <div className="text-white text-2xl">🎤</div>
+                  ) : (
+                    <div className="text-white text-2xl">🗣️</div>
+                  )}
+                </Button>
+              )}
             </div>
 
             {/* Status Indicators */}
@@ -626,10 +663,15 @@ export default function VoiceComplaintAgent() {
             </div>
 
             {/* Instructions */}
-            {!isConversationActive && (
+            {!isConversationActive ? (
               <div className="text-center text-white/60 text-sm px-4">
                 <p>Tap the green button to start talking with AURA</p>
                 <p className="mt-2">I'm here to help with your service complaints</p>
+              </div>
+            ) : (
+              <div className="text-center text-white/60 text-sm px-4">
+                <p>Tap the blue button to speak</p>
+                <p className="mt-1">Hold or click to talk to AURA</p>
               </div>
             )}
           </div>
