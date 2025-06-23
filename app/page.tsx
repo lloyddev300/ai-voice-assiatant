@@ -23,11 +23,14 @@ export default function VoiceComplaintAgent() {
   const [lastUserMessage, setLastUserMessage] = useState("")
   const [showEmailPopup, setShowEmailPopup] = useState(false)
   const [customerEmail, setCustomerEmail] = useState("")
+  const [conversationStep, setConversationStep] = useState(1) // Track conversation progress
   const [complaintData, setComplaintData] = useState({
     complaint: "",
     customerInfo: "",
     issueDetails: "",
     conversationHistory: [] as string[],
+    empathyShown: false,
+    detailsCollected: false,
   })
 
   const isPushToTalk = true
@@ -51,9 +54,34 @@ export default function VoiceComplaintAgent() {
     onFinish: (message) => {
       console.log("AI response received:", message.content)
 
-      // Check if AI is asking for email
-      if (message.content.toLowerCase().includes("email") && message.content.toLowerCase().includes("submit")) {
+      // Track conversation progress and trigger email popup
+      const messageContent = message.content.toLowerCase()
+
+      // Check if AI is showing empathy/acknowledgment
+      if (
+        messageContent.includes("understand") ||
+        messageContent.includes("frustrating") ||
+        messageContent.includes("upset")
+      ) {
+        setComplaintData((prev) => ({ ...prev, empathyShown: true }))
+        setConversationStep(3)
+      }
+
+      // Check if AI is asking for details
+      if (
+        messageContent.includes("when") ||
+        messageContent.includes("how long") ||
+        messageContent.includes("what service")
+      ) {
+        setComplaintData((prev) => ({ ...prev, detailsCollected: true }))
+        setConversationStep(4)
+      }
+
+      // Check if AI is asking for email - trigger popup
+      if (messageContent.includes("email address") || messageContent.includes("submit your email")) {
+        console.log("Email collection triggered!")
         setShowEmailPopup(true)
+        setConversationStep(5)
       }
 
       // Store AI response in complaint data
@@ -205,14 +233,19 @@ export default function VoiceComplaintAgent() {
       // Add to conversation history
       newData.conversationHistory = [...prev.conversationHistory, `User: ${userMessage}`]
 
-      // Categorize the message
-      if (userMessageCount === 0) {
-        // First user message is the main complaint
-        newData.complaint = userMessage
-        console.log("Stored as main complaint:", userMessage)
-      } else if (userMessageCount === 1) {
-        // Second message contains additional details
-        newData.issueDetails = userMessage
+      // Categorize the message based on conversation step
+      if (conversationStep === 1 || conversationStep === 2) {
+        // Initial complaint
+        if (!newData.complaint) {
+          newData.complaint = userMessage
+          console.log("Stored as main complaint:", userMessage)
+          setConversationStep(2)
+        } else {
+          newData.complaint += ` ${userMessage}`
+        }
+      } else if (conversationStep === 3 || conversationStep === 4) {
+        // Additional details after empathy
+        newData.issueDetails = newData.issueDetails ? `${newData.issueDetails} ${userMessage}` : userMessage
         console.log("Stored as issue details:", userMessage)
       } else {
         // Additional customer information
@@ -230,11 +263,14 @@ export default function VoiceComplaintAgent() {
     setLastUserMessage("")
     setCurrentTranscript("")
     setInterimTranscript("")
+    setConversationStep(1)
     setComplaintData({
       complaint: "",
       customerInfo: "",
       issueDetails: "",
       conversationHistory: [],
+      empathyShown: false,
+      detailsCollected: false,
     })
 
     // Speak the initial greeting
@@ -246,13 +282,19 @@ export default function VoiceComplaintAgent() {
 
   const endConversation = () => {
     console.log("Ending conversation...")
+
+    // If we haven't collected email yet, show popup
+    if (!customerEmail && conversationStep >= 3) {
+      setShowEmailPopup(true)
+      return
+    }
+
     setIsConversationActive(false)
     stopListening()
     stopSpeaking()
     setCurrentTranscript("")
     setInterimTranscript("")
     setLastUserMessage("")
-    setShowEmailPopup(false)
 
     // Send complaint data if we have any conversation
     if (messages.length > 1) {
@@ -397,14 +439,21 @@ export default function VoiceComplaintAgent() {
         customerInfo: prev.customerInfo ? `${prev.customerInfo} Email: ${customerEmail}` : `Email: ${customerEmail}`,
       }))
 
-      // Send complaint data
+      // Send complaint data immediately
       sendComplaintData()
 
-      // Continue conversation
+      // Continue conversation with confirmation
       append({
         role: "user",
         content: `My email is ${customerEmail}`,
       })
+
+      // End conversation after email is collected
+      setTimeout(() => {
+        setIsConversationActive(false)
+        stopListening()
+        stopSpeaking()
+      }, 3000)
     }
   }
 
@@ -418,11 +467,14 @@ export default function VoiceComplaintAgent() {
         complaintData: complaintData,
         customerEmail: customerEmail,
         conversationDuration: messages.length,
+        conversationStep: conversationStep,
         summary: {
           mainComplaint: complaintData.complaint,
           issueDetails: complaintData.issueDetails,
           customerInfo: complaintData.customerInfo,
           fullConversation: complaintData.conversationHistory,
+          empathyShown: complaintData.empathyShown,
+          detailsCollected: complaintData.detailsCollected,
         },
       }
 
@@ -452,7 +504,24 @@ export default function VoiceComplaintAgent() {
     if (isSpeaking) return "AURA speaking..."
     if (isListening) return "Listening..."
     if (isLoading) return "AURA thinking..."
-    return "Ready to listen"
+    return `Step ${conversationStep}/5 - Ready to listen`
+  }
+
+  const getConversationStepName = () => {
+    switch (conversationStep) {
+      case 1:
+        return "Welcome"
+      case 2:
+        return "Capturing Complaint"
+      case 3:
+        return "Showing Empathy"
+      case 4:
+        return "Collecting Details"
+      case 5:
+        return "Email Collection"
+      default:
+        return "Active"
+    }
   }
 
   return (
@@ -470,7 +539,8 @@ export default function VoiceComplaintAgent() {
               </Button>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Please provide your email address so our team can follow up on your complaint.
+              Please provide your email address so our team can follow up on your complaint and keep you updated on the
+              resolution.
             </p>
             <input
               type="email"
@@ -479,13 +549,18 @@ export default function VoiceComplaintAgent() {
               placeholder="your.email@example.com"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent mb-4"
               autoFocus
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && customerEmail.trim()) {
+                  handleEmailSubmit()
+                }
+              }}
             />
             <Button
               onClick={handleEmailSubmit}
               className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
               disabled={!customerEmail.trim()}
             >
-              Submit Email
+              Submit Email & Complete
             </Button>
           </div>
         </div>
@@ -513,6 +588,7 @@ export default function VoiceComplaintAgent() {
           <div className="text-center mb-8">
             <h1 className="text-white text-2xl font-medium mb-4">AURA Assistant</h1>
             <p className="text-white/80 text-lg">{getConversationStatus()}</p>
+            {isConversationActive && <p className="text-white/60 text-sm mt-2">{getConversationStepName()}</p>}
           </div>
 
           {/* Live Transcription */}
@@ -562,12 +638,38 @@ export default function VoiceComplaintAgent() {
                 </div>
               )}
 
+              {/* Conversation Progress */}
+              <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 mb-3">
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-xs text-gray-600">Conversation Progress</p>
+                  <p className="text-xs text-gray-500">{conversationStep}/5</p>
+                </div>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((step) => (
+                    <div
+                      key={step}
+                      className={`h-2 flex-1 rounded-full ${
+                        step <= conversationStep ? "bg-purple-500" : "bg-gray-300"
+                      }`}
+                    ></div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Welcome</span>
+                  <span>Complaint</span>
+                  <span>Empathy</span>
+                  <span>Details</span>
+                  <span>Email</span>
+                </div>
+              </div>
+
               {/* Debug Info */}
               {process.env.NODE_ENV === "development" && (
                 <div className="bg-gray-800/80 rounded-lg p-2 mb-3 text-xs text-white">
                   <p>Messages: {messages.length}</p>
                   <p>Complaint: {complaintData.complaint ? "✓" : "✗"}</p>
-                  <p>Details: {complaintData.issueDetails ? "✓" : "✗"}</p>
+                  <p>Empathy: {complaintData.empathyShown ? "✓" : "✗"}</p>
+                  <p>Details: {complaintData.detailsCollected ? "✓" : "✗"}</p>
                   <p>History: {complaintData.conversationHistory.length}</p>
                 </div>
               )}
