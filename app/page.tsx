@@ -48,32 +48,37 @@ export default function VoiceComplaintAgent() {
     onFinish: (message) => {
       console.log("AI response received:", message.content)
 
-      // Force step progression based on user message count
+      // Count user messages to determine what step we should be on
       const userMessageCount = messages.filter((m) => m.role === "user").length
+      console.log("User message count:", userMessageCount)
 
+      // Force step progression based on user message count
+      let newStep = conversationStep
       if (userMessageCount === 1) {
-        // After first user message, we should be showing empathy
-        setConversationStep(3)
-        console.log("Moving to empathy step")
+        newStep = 3 // After first user message, we're showing empathy
+        console.log("Moving to empathy step (3)")
       } else if (userMessageCount === 2) {
-        // After second user message, we should be collecting details
-        setConversationStep(4)
-        console.log("Moving to details step")
+        newStep = 4 // After second user message, we're collecting details
+        console.log("Moving to details step (4)")
       } else if (userMessageCount >= 3) {
-        // After third user message, we should be asking for email
-        setConversationStep(5)
-        console.log("Moving to email step")
+        newStep = 5 // After third user message, we're asking for email
+        console.log("Moving to email step (5)")
       }
 
-      // Check for email trigger phrases
+      setConversationStep(newStep)
+
+      // Check for email trigger phrases - be more aggressive
       const messageContent = message.content.toLowerCase()
       if (
         messageContent.includes("submit your email") ||
         messageContent.includes("email address") ||
-        messageContent.includes("follow up with you")
+        messageContent.includes("follow up with you") ||
+        userMessageCount >= 3
       ) {
-        console.log("Email popup triggered!")
-        setShowEmailPopup(true)
+        console.log("Email popup triggered! Message content:", messageContent)
+        setTimeout(() => {
+          setShowEmailPopup(true)
+        }, 1000) // Small delay to let user hear the response
       }
 
       // Store AI response
@@ -131,7 +136,7 @@ export default function VoiceComplaintAgent() {
 
           if (finalTranscript.trim()) {
             const fullMessage = (currentTranscript + finalTranscript).trim()
-            console.log("Processing message:", fullMessage)
+            console.log("Processing user message:", fullMessage)
 
             setCurrentTranscript(fullMessage)
             setLastUserMessage(fullMessage)
@@ -182,11 +187,17 @@ export default function VoiceComplaintAgent() {
       const userMessageCount = messages.filter((m) => m.role === "user").length
 
       if (userMessageCount === 0) {
+        // First message is the main complaint
         newData.complaint = userMessage
+        console.log("Stored as main complaint:", userMessage)
       } else if (userMessageCount === 1) {
+        // Second message is timing/additional details
         newData.issueDetails = userMessage
+        console.log("Stored as issue details:", userMessage)
       } else {
+        // Additional customer information
         newData.customerInfo = prev.customerInfo ? `${prev.customerInfo} ${userMessage}` : userMessage
+        console.log("Stored as customer info:", userMessage)
       }
 
       return newData
@@ -197,6 +208,11 @@ export default function VoiceComplaintAgent() {
     console.log("Starting conversation...")
     setIsConversationActive(true)
     setConversationStep(1)
+    setLastUserMessage("")
+    setCurrentTranscript("")
+    setInterimTranscript("")
+    setCustomerEmail("")
+    setShowEmailPopup(false)
     setComplaintData({
       complaint: "",
       customerInfo: "",
@@ -204,9 +220,11 @@ export default function VoiceComplaintAgent() {
       conversationHistory: [],
     })
 
+    // Speak the initial greeting
     const initialMessage = messages[0]?.content
     if (initialMessage) {
       speakText(initialMessage)
+      setConversationStep(2) // Move to complaint capture step
     }
   }
 
@@ -224,10 +242,18 @@ export default function VoiceComplaintAgent() {
   }
 
   const startListening = () => {
-    if (!recognitionRef.current || recognitionActiveRef.current || isSpeaking) return
+    if (!recognitionRef.current || recognitionActiveRef.current || isSpeaking) {
+      console.log("Cannot start listening:", {
+        hasRecognition: !!recognitionRef.current,
+        isActive: recognitionActiveRef.current,
+        isSpeaking,
+      })
+      return
+    }
 
     try {
       recognitionRef.current.start()
+      console.log("Started listening")
     } catch (err: any) {
       console.error("Error starting recognition:", err)
     }
@@ -236,11 +262,17 @@ export default function VoiceComplaintAgent() {
   const stopListening = () => {
     if (recognitionRef.current && recognitionActiveRef.current) {
       recognitionRef.current.stop()
+      console.log("Stopped listening")
     }
   }
 
   const speakText = (text: string) => {
-    if (!synthRef.current || !voicesReady || !text) return
+    if (!synthRef.current || !voicesReady || !text) {
+      console.log("Cannot speak:", { synthRef: !!synthRef.current, voicesReady, hasText: !!text })
+      return
+    }
+
+    console.log("Speaking:", text)
 
     if (synthRef.current.speaking) {
       synthRef.current.cancel()
@@ -258,15 +290,18 @@ export default function VoiceComplaintAgent() {
       if (americanVoice) utterance.voice = americanVoice
 
       utterance.onstart = () => {
+        console.log("Speech started")
         setIsSpeaking(true)
         stopListening()
       }
 
       utterance.onend = () => {
+        console.log("Speech ended")
         setIsSpeaking(false)
       }
 
-      utterance.onerror = () => {
+      utterance.onerror = (event) => {
+        console.error("Speech error:", event)
         setIsSpeaking(false)
       }
 
@@ -282,7 +317,10 @@ export default function VoiceComplaintAgent() {
   }
 
   const handleVoiceInput = (text: string) => {
+    console.log("Sending to AI:", text)
     append({ role: "user", content: text })
+
+    // Clear transcripts
     setTimeout(() => {
       setCurrentTranscript("")
       setInterimTranscript("")
@@ -299,22 +337,27 @@ export default function VoiceComplaintAgent() {
         customerInfo: `${prev.customerInfo} Email: ${customerEmail}`,
       }))
 
+      // Send complaint data immediately
       sendComplaintData()
 
+      // Send email to AI for confirmation
       append({
         role: "user",
         content: `My email is ${customerEmail}`,
       })
 
+      // End conversation after a short delay
       setTimeout(() => {
         setIsConversationActive(false)
         stopListening()
         stopSpeaking()
-      }, 2000)
+      }, 3000)
     }
   }
 
   const sendComplaintData = async () => {
+    console.log("Sending complaint data to webhook...")
+
     try {
       const payload = {
         timestamp: new Date().toISOString(),
@@ -322,7 +365,15 @@ export default function VoiceComplaintAgent() {
         complaintData: complaintData,
         customerEmail: customerEmail,
         conversationStep: conversationStep,
+        summary: {
+          mainComplaint: complaintData.complaint,
+          issueDetails: complaintData.issueDetails,
+          customerInfo: complaintData.customerInfo,
+          fullConversation: complaintData.conversationHistory,
+        },
       }
+
+      console.log("Webhook payload:", payload)
 
       const response = await fetch("/api/webhook", {
         method: "POST",
@@ -331,7 +382,10 @@ export default function VoiceComplaintAgent() {
       })
 
       if (response.ok) {
-        console.log("Complaint sent successfully")
+        const result = await response.json()
+        console.log("Complaint sent successfully:", result)
+      } else {
+        console.error("Failed to send complaint:", response.status)
       }
     } catch (error) {
       console.error("Error sending complaint:", error)
@@ -345,6 +399,31 @@ export default function VoiceComplaintAgent() {
     if (isLoading) return "AURA thinking..."
     return "Ready to listen"
   }
+
+  const getStepName = (step: number) => {
+    switch (step) {
+      case 1:
+        return "Welcome"
+      case 2:
+        return "Complaint"
+      case 3:
+        return "Empathy"
+      case 4:
+        return "Details"
+      case 5:
+        return "Email"
+      default:
+        return "Active"
+    }
+  }
+
+  // Force email popup if we're at step 5 and no popup is shown
+  useEffect(() => {
+    if (conversationStep === 5 && !showEmailPopup && isConversationActive) {
+      console.log("Force showing email popup at step 5")
+      setTimeout(() => setShowEmailPopup(true), 2000)
+    }
+  }, [conversationStep, showEmailPopup, isConversationActive])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-400 via-pink-400 to-blue-400 p-4 flex items-center justify-center">
@@ -408,6 +487,11 @@ export default function VoiceComplaintAgent() {
           <div className="text-center mb-8">
             <h1 className="text-white text-2xl font-medium mb-4">AURA Assistant</h1>
             <p className="text-white/80 text-lg">{getConversationStatus()}</p>
+            {isConversationActive && (
+              <p className="text-white/60 text-sm mt-2">
+                Step {conversationStep}/5 - {getStepName(conversationStep)}
+              </p>
+            )}
           </div>
 
           {/* Live Transcription */}
@@ -457,17 +541,19 @@ export default function VoiceComplaintAgent() {
                 </div>
               )}
 
-              {/* Progress */}
+              {/* Progress Bar */}
               <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 mb-3">
                 <div className="flex justify-between items-center mb-2">
                   <p className="text-xs text-gray-600">Conversation Progress</p>
-                  <p className="text-xs text-gray-500">{conversationStep}/5</p>
+                  <p className="text-xs text-gray-500">{conversationStep}/5}</p>
                 </div>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((step) => (
                     <div
                       key={step}
-                      className={`h-2 flex-1 rounded-full ${step <= conversationStep ? "bg-purple-500" : "bg-gray-300"}`}
+                      className={`h-2 flex-1 rounded-full transition-colors duration-500 ${
+                        step <= conversationStep ? "bg-purple-500" : "bg-gray-300"
+                      }`}
                     ></div>
                   ))}
                 </div>
@@ -478,6 +564,15 @@ export default function VoiceComplaintAgent() {
                   <span>Details</span>
                   <span>Email</span>
                 </div>
+              </div>
+
+              {/* Debug Info */}
+              <div className="bg-gray-800/80 rounded-lg p-2 mb-3 text-xs text-white">
+                <p>Messages: {messages.length}</p>
+                <p>User Messages: {messages.filter((m) => m.role === "user").length}</p>
+                <p>Current Step: {conversationStep}</p>
+                <p>Email Popup: {showEmailPopup ? "✓" : "✗"}</p>
+                <p>Complaint: {complaintData.complaint ? "✓" : "✗"}</p>
               </div>
             </div>
           )}
