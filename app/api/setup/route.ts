@@ -1,7 +1,7 @@
 export async function GET() {
   const requiredEnvVars = {
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    WEBHOOK_URL: process.env.WEBHOOK_URL,
+    WEBHOOK_URL: process.env.https://hook.eu2.make.com/nt3ksn919sac480tcliv0an9gtemlej1,
   }
 
   const missingVars = Object.entries(requiredEnvVars)
