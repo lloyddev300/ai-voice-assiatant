@@ -1,30 +1,69 @@
-# Github ai voice agent
+# AI Voice Complaint Agent
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+A modern AI-powered voice agent for handling service complaints with a beautiful mobile-first interface.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/lloyddev3-5283s-projects/v0-github-ai-voice-agent)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/0CdpV0uT0CZ)
+## Setup Instructions
 
-## Overview
+### 1. Environment Variables
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+Create a `.env.local` file in your project root and add the following environment variables:
 
-## Deployment
+\`\`\`env
+# Google Gemini API Key
+GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
 
-Your project is live at:
+# Webhook URL for complaint data
+WEBHOOK_URL=https://your-webhook-endpoint.com/complaints
 
-**[https://vercel.com/lloyddev3-5283s-projects/v0-github-ai-voice-agent](https://vercel.com/lloyddev3-5283s-projects/v0-github-ai-voice-agent)**
+# Optional: Webhook authentication token
+WEBHOOK_TOKEN=your_webhook_auth_token
+\`\`\`
 
-## Build your app
+### 2. Getting Your Google Gemini API Key
 
-Continue building your app on:
+1. Go to [Google AI Studio](https://aistudio.google.com/)
+2. Sign in with your Google account
+3. Click "Get API Key" 
+4. Create a new API key or use an existing one
+5. Copy the API key and add it to your `.env.local` file
 
-**[https://v0.dev/chat/projects/0CdpV0uT0CZ](https://v0.dev/chat/projects/0CdpV0uT0CZ)**
+### 3. Setting Up Your Webhook
 
-## How It Works
+Replace `WEBHOOK_URL` with your actual webhook endpoint that will receive the complaint data.
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+The webhook will receive POST requests with this structure:
+\`\`\`json
+{
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "conversationLength": 6,
+  "customerMessages": [...],
+  "fullConversation": [...],
+  "source": "ai_voice_agent"
+}
+\`\`\`
+
+### 4. Running the Application
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Open [http://localhost:3000](http://localhost:3000) to view the application.
+
+## Features
+
+- 🎤 **Voice Recognition**: Real-time speech-to-text conversion
+- 🤖 **AI Conversation**: Powered by Google Gemini for natural conversations  
+- 🔊 **Text-to-Speech**: AI responses are spoken back to users
+- 📱 **Mobile-First Design**: Beautiful, modern interface optimized for mobile
+- 🔗 **Webhook Integration**: Automatic complaint data submission
+- 🎨 **Glassmorphism UI**: Modern design with gradient backgrounds
+
+## Browser Compatibility
+
+- Chrome/Edge: Full support for voice features
+- Firefox: Limited voice support
+- Safari: Basic functionality (voice features may be limited)
+
+For the best experience, use Chrome or Edge browsers.
