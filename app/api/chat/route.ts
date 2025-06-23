@@ -8,49 +8,55 @@ export async function POST(req: Request) {
   const userMessages = messages.filter((m: any) => m.role === "user")
   const userMessageCount = userMessages.length
 
-  console.log(`Processing message ${userMessageCount + 1}, current user messages:`, userMessageCount)
+  console.log(`API: Processing message ${userMessageCount + 1}`)
+  console.log(
+    `API: User messages so far:`,
+    userMessages.map((m) => m.content),
+  )
 
   let systemPrompt = ""
 
-  if (userMessageCount === 0) {
-    // Initial welcome - this should already be in initialMessages
-    systemPrompt = `You are AURA. Say: "Hello there! Welcome to our customer service. My name is AURA, your virtual assistant. How are you doing today, and how can I assist you?"`
-  } else if (userMessageCount === 1) {
-    // User just shared their complaint - MUST show empathy and ask when it started
-    const userComplaint = userMessages[0]?.content || ""
-    systemPrompt = `You are AURA. The customer just told you: "${userComplaint}"
+  switch (userMessageCount) {
+    case 0:
+      // This shouldn't happen due to initialMessages, but just in case
+      systemPrompt = `Say: "Hello! I'm AURA. How can I help you today?"`
+      break
 
-You MUST respond with empathy and ask when it started. Say something like:
+    case 1:
+      // User just shared their complaint - show empathy and ask timing
+      systemPrompt = `The customer said: "${userMessages[0].content}"
 
-"I completely understand how frustrating this must be for you. Having trouble with your dashboard and not being able to access your account is really concerning. Let me make sure I understand correctly - you can't log in, your balance isn't showing, and nothing on your dashboard is working. When did this issue first start happening?"
+Respond with empathy and ask when it started. Say exactly:
 
-CRITICAL: You MUST ask "When did this first start happening?" or "How long has this been going on?"`
-  } else if (userMessageCount === 2) {
-    // User provided timing info - ask for more specific details
-    systemPrompt = `You are AURA. The customer provided timing information. Now ask for specific details about their account or the issue.
+"I'm so sorry to hear about this issue. That sounds really frustrating. When did this problem first start happening?"`
+      break
 
-Say something like: "Thank you for that information. Can you tell me what type of account this is - is this a personal or business account? And are you getting any specific error messages when you try to log in?"
+    case 2:
+      // User provided timing - ask for account details
+      systemPrompt = `The customer provided timing info. Ask for account details. Say exactly:
 
-Keep it short and ask ONE specific question about their account type or error messages.`
-  } else if (userMessageCount === 3) {
-    // User provided details - now provide reassurance and ask for email
-    systemPrompt = `You are AURA. You've gathered enough information. Now provide reassurance and ask for their email.
+"Thank you for that information. Can you tell me what type of account this is - personal or business?"`
+      break
 
-Say EXACTLY: "I want you to know that our team takes this very seriously. We will investigate this issue immediately and work to resolve it. Your complaint is important to us and will be prioritized. I'm going to ask you to submit your email address now so our team can follow up with you directly about the resolution."
+    case 3:
+      // User provided details - ask for email
+      systemPrompt = `The customer provided account details. Now ask for email. Say exactly:
 
-CRITICAL: You MUST say "submit your email address" to trigger the email popup.`
-  } else {
-    // Fallback for any additional messages
-    systemPrompt = `You are AURA. Ask for their email if you haven't already. Say: "I need you to submit your email address so our team can follow up with you."`
+"I understand. Our team will investigate this immediately. I need you to submit your email address so we can follow up with you directly."`
+      break
+
+    default:
+      // Fallback
+      systemPrompt = `Ask for their email. Say: "Please submit your email address for follow-up."`
   }
 
-  console.log("Using system prompt:", systemPrompt)
+  console.log(`API: Using system prompt:`, systemPrompt)
 
   const result = await streamText({
     model: google("gemini-1.5-pro"),
     system: systemPrompt,
-    messages,
-    maxTokens: 120,
+    messages: [{ role: "user", content: "Continue the conversation" }], // Simple prompt
+    maxTokens: 80,
   })
 
   return result.toDataStreamResponse()

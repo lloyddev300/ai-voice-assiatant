@@ -24,6 +24,7 @@ export default function VoiceComplaintAgent() {
   const [showEmailPopup, setShowEmailPopup] = useState(false)
   const [customerEmail, setCustomerEmail] = useState("")
   const [conversationStep, setConversationStep] = useState(1)
+  const [userMessageCount, setUserMessageCount] = useState(0)
   const [complaintData, setComplaintData] = useState({
     complaint: "",
     customerInfo: "",
@@ -41,45 +42,11 @@ export default function VoiceComplaintAgent() {
       {
         id: "1",
         role: "assistant",
-        content:
-          "Hello there! Welcome to our customer service. My name is AURA, your virtual assistant. How are you doing today, and how can I assist you?",
+        content: "Hello! I'm AURA, your virtual assistant. How can I help you today?",
       },
     ],
     onFinish: (message) => {
       console.log("AI response received:", message.content)
-
-      // Count user messages to determine what step we should be on
-      const userMessageCount = messages.filter((m) => m.role === "user").length
-      console.log("User message count:", userMessageCount)
-
-      // Force step progression based on user message count
-      let newStep = conversationStep
-      if (userMessageCount === 1) {
-        newStep = 3 // After first user message, we're showing empathy
-        console.log("Moving to empathy step (3)")
-      } else if (userMessageCount === 2) {
-        newStep = 4 // After second user message, we're collecting details
-        console.log("Moving to details step (4)")
-      } else if (userMessageCount >= 3) {
-        newStep = 5 // After third user message, we're asking for email
-        console.log("Moving to email step (5)")
-      }
-
-      setConversationStep(newStep)
-
-      // Check for email trigger phrases - be more aggressive
-      const messageContent = message.content.toLowerCase()
-      if (
-        messageContent.includes("submit your email") ||
-        messageContent.includes("email address") ||
-        messageContent.includes("follow up with you") ||
-        userMessageCount >= 3
-      ) {
-        console.log("Email popup triggered! Message content:", messageContent)
-        setTimeout(() => {
-          setShowEmailPopup(true)
-        }, 1000) // Small delay to let user hear the response
-      }
 
       // Store AI response
       setComplaintData((prev) => ({
@@ -87,10 +54,48 @@ export default function VoiceComplaintAgent() {
         conversationHistory: [...prev.conversationHistory, `AURA: ${message.content}`],
       }))
 
+      // Check if we should show email popup
+      const messageContent = message.content.toLowerCase()
+      if (messageContent.includes("email") || messageContent.includes("follow up") || userMessageCount >= 3) {
+        console.log("Triggering email popup")
+        setTimeout(() => {
+          setShowEmailPopup(true)
+        }, 1500)
+      }
+
       // Speak the response
       speakText(message.content)
     },
   })
+
+  // Update step based on user message count
+  useEffect(() => {
+    const currentUserMessages = messages.filter((m) => m.role === "user").length
+    setUserMessageCount(currentUserMessages)
+
+    // Update conversation step
+    if (currentUserMessages === 0) {
+      setConversationStep(1) // Welcome
+    } else if (currentUserMessages === 1) {
+      setConversationStep(2) // Complaint received
+    } else if (currentUserMessages === 2) {
+      setConversationStep(3) // Empathy shown
+    } else if (currentUserMessages === 3) {
+      setConversationStep(4) // Details collected
+    } else if (currentUserMessages >= 4) {
+      setConversationStep(5) // Email requested
+    }
+
+    console.log(`Step updated: ${currentUserMessages} user messages -> Step ${conversationStep}`)
+  }, [messages])
+
+  // Force email popup at step 4+
+  useEffect(() => {
+    if (userMessageCount >= 3 && !showEmailPopup && isConversationActive) {
+      console.log("Force showing email popup - user has sent 3+ messages")
+      setTimeout(() => setShowEmailPopup(true), 2000)
+    }
+  }, [userMessageCount, showEmailPopup, isConversationActive])
 
   useEffect(() => {
     const initializeSpeechRecognition = async () => {
@@ -184,8 +189,6 @@ export default function VoiceComplaintAgent() {
       const newData = { ...prev }
       newData.conversationHistory = [...prev.conversationHistory, `User: ${userMessage}`]
 
-      const userMessageCount = messages.filter((m) => m.role === "user").length
-
       if (userMessageCount === 0) {
         // First message is the main complaint
         newData.complaint = userMessage
@@ -208,6 +211,7 @@ export default function VoiceComplaintAgent() {
     console.log("Starting conversation...")
     setIsConversationActive(true)
     setConversationStep(1)
+    setUserMessageCount(0)
     setLastUserMessage("")
     setCurrentTranscript("")
     setInterimTranscript("")
@@ -224,7 +228,6 @@ export default function VoiceComplaintAgent() {
     const initialMessage = messages[0]?.content
     if (initialMessage) {
       speakText(initialMessage)
-      setConversationStep(2) // Move to complaint capture step
     }
   }
 
@@ -365,6 +368,7 @@ export default function VoiceComplaintAgent() {
         complaintData: complaintData,
         customerEmail: customerEmail,
         conversationStep: conversationStep,
+        userMessageCount: userMessageCount,
         summary: {
           mainComplaint: complaintData.complaint,
           issueDetails: complaintData.issueDetails,
@@ -416,14 +420,6 @@ export default function VoiceComplaintAgent() {
         return "Active"
     }
   }
-
-  // Force email popup if we're at step 5 and no popup is shown
-  useEffect(() => {
-    if (conversationStep === 5 && !showEmailPopup && isConversationActive) {
-      console.log("Force showing email popup at step 5")
-      setTimeout(() => setShowEmailPopup(true), 2000)
-    }
-  }, [conversationStep, showEmailPopup, isConversationActive])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-400 via-pink-400 to-blue-400 p-4 flex items-center justify-center">
@@ -545,7 +541,7 @@ export default function VoiceComplaintAgent() {
               <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 mb-3">
                 <div className="flex justify-between items-center mb-2">
                   <p className="text-xs text-gray-600">Conversation Progress</p>
-                  <p className="text-xs text-gray-500">{conversationStep}/5</p>
+                  <p className="text-xs text-gray-500">{`${conversationStep}/5`}</p>
                 </div>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((step) => (
@@ -568,11 +564,12 @@ export default function VoiceComplaintAgent() {
 
               {/* Debug Info */}
               <div className="bg-gray-800/80 rounded-lg p-2 mb-3 text-xs text-white">
-                <p>Messages: {messages.length}</p>
-                <p>User Messages: {messages.filter((m) => m.role === "user").length}</p>
+                <p>Total Messages: {messages.length}</p>
+                <p>User Messages: {userMessageCount}</p>
                 <p>Current Step: {conversationStep}</p>
                 <p>Email Popup: {showEmailPopup ? "✓" : "✗"}</p>
                 <p>Complaint: {complaintData.complaint ? "✓" : "✗"}</p>
+                <p>Last User: {lastUserMessage.slice(0, 30)}...</p>
               </div>
             </div>
           )}
@@ -664,6 +661,9 @@ export default function VoiceComplaintAgent() {
               <div className="text-center text-white/60 text-sm px-4">
                 <p>Hold the blue button to speak</p>
                 <p className="mt-1">Release when you're done talking</p>
+                {userMessageCount >= 3 && !showEmailPopup && (
+                  <p className="mt-2 text-yellow-300">Email popup should appear soon...</p>
+                )}
               </div>
             )}
           </div>
